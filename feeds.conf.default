@@ -1,0 +1,4 @@
+src-git packages https://github.com/openwrt-fork/ipq6000-packages;1806
+src-git luci https://github.com/sdf8057/luci.git;1806
+src-git routing https://github.com/openwrt/routing.git;openwrt-21.02
+src-git telephony https://github.com/openwrt/telephony.git;openwrt-21.02
