@@ -1,47 +1,73 @@
-<div align="center">
-  <h1 align="center">
-     IPQ60xx||IPQ807x||MT798x 设备的 OpenWrt 固件发布页面
-  </h1>
-<a href="/LICENSE">
-    <img src="https://img.shields.io/github/license/sdf8057/cloudbuild?style=flat&a=1" alt="">
-  </a>
-  <a href="https://github.com/sdf8057/cloudbuild/pulls">
-    <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat" alt="">
-  </a><a href="https://github.com/sdf8057/cloudbuild/issues/new">
-    <img src="https://img.shields.io/badge/Issues-welcome-brightgreen.svg?style=flat">
-  </a><a href="https://github.com/sdf8057/cloudbuild/releases">
-    <img src="https://img.shields.io/github/release/sdf8057/cloudbuild.svg?style=flat">
-  </a><a href="hhttps://github.com/sdf8057/cloudbuild/releases">
-    <img src="https://img.shields.io/github/downloads/sdf8057/cloudbuild/total?style=flat&?">
-  </a>
-</div>
-<br>
+# 兆能 ZN-M2 OpenWrt 固件
 
-## ipq6000固件特性：  
-0.默认后台地址192.168.100.1；默认后台密码password。  
-1.添加cpu温度、频率以及npu占用率显示。  
-2.修复nat环回功能失效bug。  
-3.cpu超频至1.6ghz，跑分2w+。  
-4.为360/和目等设备添加原厂无线校准文件。  
-5.支持在线安装软件，手动安装请确保插件使用lua语言编写。  
-6.释放保留内存，可用内存增加50m。  
-7.此页面发布的ipq6000固件不集成无线功能。  
+无 WiFi / 无 USB / 弱电箱专用 · 内核 4.4.60 · 推荐内存 512M+
 
-## 集成插件列表
-luci-app-ssr-plus  
-luci-app-openclash  
-luci-app-ddns  
-luci-app-msd_lite  
-luci-app-wol  
-luci-app-upnp  
-luci-app-uhttpd  
-luci-app-cpufreq  
-luci-app-ipsec-vpnd  
-luci-app-openvpn-server  
-luci-app-zerotier  
+感谢 [sdf8057](https://github.com/sdf8057/ipq6000) 大佬的 IPQ6000 源码贡献。
 
-## 固件预览
-![image](https://github.com/sdf8057/cloudbuild/blob/main/pic/overview.png)
+已反向移植：
+- `kmod-ipt-socket` / `iptables-mod-socket` — Passwall 4.66-8+ 依赖
+- `kmod-netlink-diag` — Passwall 4.70+ SingBox 依赖
 
-## 微信打赏
-![image](https://github.com/sdf8057/cloudbuild/blob/main/pic/reward_qrcode.png)
+已合并到 [sdf8057/ipq6000](https://github.com/openwrt-fork/sdf8057-ipq6000)。
+
+---
+
+## 固件变体
+
+每次构建产出 **两个变体**，发布在同一个 GitHub Release 中：
+
+| 变体 | 说明 | 文件名后缀 |
+|------|------|-----------|
+| **basic** | 纯净版，不含集客 AC 控制器 | `-basic` |
+| **gecoosac-v2** | 含集客 AC 控制器 V2 | `-gecoosac-v2` |
+
+---
+
+## 自动构建 & 更新
+
+- **手动触发**：在 Actions 页面运行 `zn-m2 build`
+- **自动触发**：`check-passwall-update` 每 6 小时检测上游 [Passwall](https://github.com/Openwrt-Passwall/openwrt-passwall) 是否有新版本发布，若有则自动触发构建
+- **Release Tag** 与上游 Passwall 版本号完全一致（如 `26.7.16-1`）
+
+### 增量编译流程
+
+```
+全量 config make download (含 gecoosac)
+  → sed 删 gecoosac → make (basic) → 保存
+  → 恢复 gecoosac config → make (增量, 仅编 gecoosac) → gecoosac-v2
+  → 两套固件一起发布
+```
+
+---
+
+## 集成软件
+
+| 分类 | 软件 |
+|------|------|
+| 科学上网 | Passwall (Haproxy / Hysteria / SingBox / Xray)、ChinaDNS-NG |
+| VPN | WireGuard、OpenVPN |
+| DDNS | ddns-scripts (阿里云 / DNSPod) |
+| 内网穿透 | Lucky、NPS |
+| 管理 | ttyd (Web 终端)、htop、bash、curl |
+| 主题 | Argon、Design |
+| 其他 | UPnP、WOL 唤醒、ARP 绑定、coremark / stress-ng |
+
+---
+
+## 刷机 & 升级
+
+- 控制台：`192.168.1.1` · 默认密码：`password`
+
+| 场景 | 文件 |
+|------|------|
+| uboot 刷机 | `*factory-basic.ubi` 或 `*factory-gecoosac-v2.ubi` |
+| 系统升级 | `*sysupgrade-basic.bin` 或 `*sysupgrade-gecoosac-v2.bin` |
+| 软件包清单 | `*basic.manifest` 或 `*gecoosac-v2.manifest` |
+
+---
+
+## 手动构建
+
+1. Fork 本仓库
+2. 在 Actions 页面选择 `zn-m2 build` → `Run workflow`
+3. 等待约 2-3 小时，构建产物自动发布到 Release
