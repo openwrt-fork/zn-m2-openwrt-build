@@ -1,0 +1,296 @@
+#
+# https://github.com/P3TERX/Actions-OpenWrt
+#
+# File: .github/workflows/zn-m2.yml
+# Description: Build OpenWrt ZN-M2 firmware (basic + gecoosac-v2) using GitHub Actions
+#
+# Copyright (c) 2019-2024 P3TERX <https://p3terx.com>
+#
+# This is free software, licensed under the MIT License.
+# See /LICENSE for more information.
+#
+
+name: zn-m2 build
+
+on:
+  schedule:
+    - cron: '23 19 * * *'   # Daily at 03:23 CST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  REPO_URL: https://github.com/openwrt-fork/sdf8057-ipq6000.git
+  REPO_BRANCH: master
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: ./config/zn-m2.config
+  DIY_P1_SH: ./scripts/zn-m2/diy-part1.sh
+  DIY_P2_SH: ./scripts/zn-m2/diy-part2.sh
+  DIY_P3_SH: ./scripts/zn-m2/diy-part3.sh
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  # Gate for schedule trigger: only build if upstream Passwall has new version
+  check:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-22.04
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      latest_pkg_sha: ${{ steps.check.outputs.latest_pkg_sha }}
+    steps:
+    - uses: actions/cache/restore@v6
+      id: cache-restore
+      with:
+        path: /tmp/passwall-cache
+        key: passwall-packages-sha-${{ github.run_id }}
+        restore-keys: passwall-packages-sha-
+
+    - name: Check upstream updates
+      id: check
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        SHOULD_BUILD=false
+
+        # Check Passwall release tag
+        LATEST_PW=$(gh release list -R Openwrt-Passwall/openwrt-passwall -L 1 --json tagName -q '.[0].tagName')
+        LATEST_TAG=$(gh release list -L 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
+        if [ "$LATEST_PW" != "$LATEST_TAG" ]; then
+          echo "Passwall release: ${LATEST_TAG:-none} -> $LATEST_PW"
+          SHOULD_BUILD=true
+        else
+          echo "Passwall release unchanged ($LATEST_TAG)"
+        fi
+
+        # Check packages repo latest commit
+        LATEST_SHA=$(gh api repos/Openwrt-Passwall/openwrt-passwall-packages/commits/main --jq .sha)
+        STORED_SHA=$(cat /tmp/passwall-cache/packages-sha 2>/dev/null || echo "")
+        if [ "$LATEST_SHA" != "$STORED_SHA" ]; then
+          echo "Packages: ${STORED_SHA:-none} -> $LATEST_SHA"
+          SHOULD_BUILD=true
+        else
+          echo "Packages unchanged ($LATEST_SHA)"
+        fi
+
+        echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+        echo "latest_pkg_sha=$LATEST_SHA" >> $GITHUB_OUTPUT
+
+  build:
+    needs: check
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' || needs.check.outputs.should_build == 'true')
+    runs-on: ubuntu-22.04
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v7
+
+    - name: Free Disk Space
+      uses: jlumbroso/free-disk-space@v1.3.1
+      with:
+        tool-cache: true
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
+
+    - name: Setup build environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo apt-get update
+        curl -s https://raw.githubusercontent.com/immortalwrt/build-scripts/master/init_build_environment.sh | sudo bash
+        sudo apt-get install -y rename pigz libfuse-dev upx subversion clang lua5.1 liblua5.1-0-dev
+        sudo apt-get autoremove -y --purge
+        sudo apt-get clean
+        sudo timedatectl set-timezone "$TZ"
+        git config --global user.email ${{ github.actor }}@users.noreply.github.com
+        git config --global user.name ${{ github.actor }}
+        git config --global init.defaultBranch master
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
+
+    - name: Clone source code
+      working-directory: /workdir
+      run: |
+        df -hT $PWD
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+
+    - name: Load custom feeds
+      run: |
+        set -x
+        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+        chmod +x $DIY_P1_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P1_SH
+
+    - name: Update feeds
+      run: cd openwrt && ./scripts/feeds update -a
+
+    - name: Modify feeds
+      run: |
+        set -x
+        chmod +x $DIY_P2_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P2_SH
+
+    - name: Install feeds
+      run: cd openwrt && ./scripts/feeds install -a
+
+    - name: Load custom configuration
+      run: |
+        set -x
+        [ -e files ] && mv files openwrt/files
+        [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
+        chmod +x $DIY_P3_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P3_SH
+        # Keep a backup of full config for gecoosac build
+        cp .config /tmp/zn-m2-full.config
+
+    - name: Download packages
+      id: package
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    # ============================================================
+    # Build 1: BASIC (without gecoosac)
+    # ============================================================
+    - name: Build BASIC firmware
+      id: compile_basic
+      run: |
+        cd openwrt
+        sed -i '/gecoosac/d' .config
+        make defconfig
+        echo -e "$(nproc) thread compile (basic)"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+
+    - name: Save BASIC firmware
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        mkdir -p /tmp/firmware-basic
+        cp -a . /tmp/firmware-basic/
+        echo "Saved basic firmware: $(ls /tmp/firmware-basic/)"
+
+    # ============================================================
+    # Build 2: GECOSAC-V2 (with gecoosac, incremental)
+    # ============================================================
+    - name: Build GECOSAC firmware (incremental)
+      id: compile_gecoosac
+      run: |
+        cd openwrt
+        cp /tmp/zn-m2-full.config .config
+        make defconfig
+        echo -e "$(nproc) thread compile (gecoosac-v2, incremental)"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+
+    - name: Check space usage
+      run: df -hT
+
+    # ============================================================
+    # Organize & Publish
+    # ============================================================
+    - name: Organize firmware files
+      id: organize
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+
+        # Create release directory with renamed files for both variants
+        mkdir -p /tmp/release-firmware
+
+        # Rename and copy basic firmware
+        for f in /tmp/firmware-basic/*; do
+          fn=$(basename "$f")
+          name="${fn%.*}"
+          ext="${fn##*.}"
+          cp "$f" "/tmp/release-firmware/${name}-basic.${ext}"
+        done
+
+        # Rename and copy gecoosac-v2 firmware
+        for f in *; do
+          fn=$(basename "$f")
+          name="${fn%.*}"
+          ext="${fn##*.}"
+          cp "$f" "/tmp/release-firmware/${name}-gecoosac-v2.${ext}"
+        done
+
+        echo "Release firmware files:"
+        ls -la /tmp/release-firmware/
+
+    - name: Generate release info
+      id: tag
+      if: env.UPLOAD_RELEASE == 'true'
+      run: |
+        # Extract Passwall version from manifest
+        PASSWALL_VER=$(grep luci-app-passwall ${{ env.FIRMWARE }}/openwrt-ipq60xx-generic-device-zn-m2.manifest | awk -F" - " '{print $2}')
+        echo "Passwall version: $PASSWALL_VER"
+        echo "PASSWALL_VER=$PASSWALL_VER" >> $GITHUB_ENV
+
+        # Tag matches upstream Passwall version exactly
+        RELEASE_TAG="${PASSWALL_VER}"
+        echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+
+        # Build release body
+        touch release.txt
+        echo "## ZN-M2 固件" >> release.txt
+        echo "" >> release.txt
+        echo "**Passwall 版本:** \`$PASSWALL_VER\`" >> release.txt
+        echo "" >> release.txt
+        grep xray-core ${{ env.FIRMWARE }}/openwrt-ipq60xx-generic-device-zn-m2.manifest | awk -F" - " '{print $2}'| awk -F"-" '{print "**Xray:** `"$1"`"}' >> release.txt
+        grep sing-box ${{ env.FIRMWARE }}/openwrt-ipq60xx-generic-device-zn-m2.manifest | awk -F" - " '{print $2}'| awk -F"-" '{print "**Sing-Box:** `"$1"`"}' >> release.txt
+        grep hysteria ${{ env.FIRMWARE }}/openwrt-ipq60xx-generic-device-zn-m2.manifest | awk -F" - " '{print $2}'| awk -F"-" '{print "**Hysteria:** `"$1"`"}' >> release.txt
+        grep chinadns-ng ${{ env.FIRMWARE }}/openwrt-ipq60xx-generic-device-zn-m2.manifest | awk -F" - " '{print $2}'| awk -F"-" '{print "**ChinaDNS-NG:** `"$1"`"}' >> release.txt
+        echo "" >> release.txt
+        echo "### 变体说明" >> release.txt
+        echo "- **basic**: 纯净版，不含集客AC控制器" >> release.txt
+        echo "- **gecoosac-v2**: 含集客AC控制器 V2" >> release.txt
+        echo "" >> release.txt
+        echo "详细包信息请查看 manifest 文件" >> release.txt
+
+        echo "release_name=ZN-M2 Passwall ${PASSWALL_VER}" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware to release
+      uses: softprops/action-gh-release@v3
+      if: '!cancelled()'
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      with:
+        name: ${{ steps.tag.outputs.release_name }}
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        body_path: release.txt
+        files: /tmp/release-firmware/*
+
+    - name: Cache packages commit SHA
+      if: needs.check.outputs.latest_pkg_sha != ''
+      run: |
+        mkdir -p /tmp/passwall-cache
+        echo "${{ needs.check.outputs.latest_pkg_sha }}" > /tmp/passwall-cache/packages-sha
+
+    - uses: actions/cache/save@v6
+      if: needs.check.outputs.latest_pkg_sha != ''
+      with:
+        path: /tmp/passwall-cache
+        key: passwall-packages-sha-${{ github.run_id }}
+
+    - name: Delete old workflows runs
+      uses: ophub/delete-releases-workflows@v0.1.0
+      with:
+        delete_workflows: true
+        workflows_keep_day: 3
+        gh_token: ${{ github.token }}
