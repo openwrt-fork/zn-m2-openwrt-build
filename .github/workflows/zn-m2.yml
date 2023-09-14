@@ -36,7 +36,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
+    
+    - name: Apt Update
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo apt update
+        
     - name: Free Disk Space
       uses: jlumbroso/free-disk-space@main
       with:
