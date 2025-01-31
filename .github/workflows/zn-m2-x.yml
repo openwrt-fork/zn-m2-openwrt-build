@@ -23,10 +23,10 @@ env:
   REPO_URL: https://github.com/openwrt-fork/sdf8057-ipq6000.git
   REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
-  CONFIG_FILE: ./config/zn-m2.config
-  DIY_P1_SH: ./scripts/zn-m2/diy-part1.sh
-  DIY_P2_SH: ./scripts/zn-m2/diy-part2.sh
-  DIY_P3_SH: ./scripts/zn-m2/diy-part3.sh
+  CONFIG_FILE: ./config/zn-m2-x.config
+  DIY_P1_SH: ./scripts/zn-m2-x/diy-part1.sh
+  DIY_P2_SH: ./scripts/zn-m2-x/diy-part2.sh
+  DIY_P3_SH: ./scripts/zn-m2-x/diy-part3.sh
   UPLOAD_BIN_DIR: false
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
