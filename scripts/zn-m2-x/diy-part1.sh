@@ -11,4 +11,4 @@
 #
 
 # Uncomment a feed source
-#echo 'src-git custom https://github.com/xiaorouji/openwrt-passwall.git;packages' >>feeds.conf.default
+#echo 'src-git custom https://github.com/vernesong/OpenClash.git;packages' >>feeds.conf.default
