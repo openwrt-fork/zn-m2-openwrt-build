@@ -5,3 +5,4 @@ src-git telephony https://github.com/openwrt/telephony.git;openwrt-21.02
 src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git;main
 src-git passwall https://github.com/xiaorouji/openwrt-passwall.git;main
 src-git lucky https://github.com/gdy666/luci-app-lucky.git;main
+src-git OpenClash https://github.com/vernesong/OpenClash.git;main
