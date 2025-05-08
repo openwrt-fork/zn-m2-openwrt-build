@@ -1,5 +1,5 @@
 # 兆能ZN-M2 openwrt 无wifi 无USB 弱电箱 旁路由 富强自用
-感谢恩山fax001大佬的贡献 https://github.com/openwrt-fork/zn-m2-openwrt-build
+感谢恩山 fax001 大佬的贡献 https://github.com/openwrt-fork/zn-m2-openwrt-build
 
 感谢大佬 sdf8057 的贡献 https://github.com/sdf8057/ipq6000
 
